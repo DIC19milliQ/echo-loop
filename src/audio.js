@@ -307,5 +307,10 @@ export function createAudioEngine({ storage, getMode }) {
     playHitSfx() {
       playTone({ freq: 180, slideToFreq: 110, release: 0.2, volume: 0.22, type: "sawtooth" });
     },
+    playGameOverSfx() {
+      playTone({ freq: 420, slideToFreq: 260, release: 0.16, volume: 0.18, type: "triangle" });
+      playTone({ freq: 300, slideToFreq: 180, release: 0.22, volume: 0.2, delay: 0.08, type: "sawtooth" });
+      playTone({ freq: 170, slideToFreq: 120, release: 0.28, volume: 0.22, delay: 0.16, type: "square" });
+    },
   };
 }

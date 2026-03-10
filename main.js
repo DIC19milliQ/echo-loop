@@ -382,6 +382,11 @@
       },
       playHitSfx() {
         playTone({ freq: 180, slideToFreq: 110, release: 0.2, volume: 0.22, type: "sawtooth" });
+      },
+      playGameOverSfx() {
+        playTone({ freq: 420, slideToFreq: 260, release: 0.16, volume: 0.18, type: "triangle" });
+        playTone({ freq: 300, slideToFreq: 180, release: 0.22, volume: 0.2, delay: 0.08, type: "sawtooth" });
+        playTone({ freq: 170, slideToFreq: 120, release: 0.28, volume: 0.22, delay: 0.16, type: "square" });
       }
     };
   }
@@ -1444,6 +1449,7 @@
   }
   function takeDamage(now, ctx) {
     const { player, state, config, audio, emitBurst, onGameOver } = ctx;
+    if (state.mode !== "running") return;
     if (now < player.invincibleUntilMs) return;
     player.invincibleUntilMs = now + config.player.invincibleMs;
     player.takingKnockbackUntilMs = now + 180;
@@ -1454,7 +1460,7 @@
     state.lapStats.hits += 1;
     emitBurst(player.x + player.w * 0.5, player.y + player.h * 0.4, 14, "#ff6c83");
     if (state.life <= 0) {
-      onGameOver();
+      onGameOver(now);
     }
   }
   function updateEnemies(dt, now, ctx) {
@@ -1617,6 +1623,9 @@
     const state = createInitialState(CONFIG, localStorage);
     const player = createPlayer(CONFIG);
     const uiState = { settingsOpen: false };
+    let gameOverLockUntilMs = 0;
+    let awaitRestartRelease = false;
+    let gameOverPhase = "banner";
     const audio = createAudioEngine({
       storage: localStorage,
       getMode: () => state.mode
@@ -1639,10 +1648,10 @@
       settingsPanelEl.classList.toggle("hidden", !open);
       overlayEl.classList.toggle("settings-open", open);
     }
-    function setOverlay(text, primaryLabel) {
+    function setOverlay(text, primaryLabel, showActions = true) {
       overlayMessageEl.textContent = text;
       overlayPrimaryButtonEl.textContent = primaryLabel;
-      overlayActionsEl.hidden = false;
+      overlayActionsEl.hidden = !showActions;
       setSettingsPanelOpen(false);
       overlayEl.classList.remove("hidden");
     }
@@ -1660,8 +1669,11 @@
     function showPauseOverlay() {
       setOverlay("PAUSED", "\u518D\u958B");
     }
-    function showGameOverOverlay() {
-      setOverlay(`GAME OVER  SCORE ${state.score} / BEST ${state.bestScore}  (SPACE \u3067\u518D\u958B)`, "\u3082\u3046\u4E00\u5EA6");
+    function showGameOverBanner() {
+      setOverlay("GAME OVER!", "\u6B21\u3078", false);
+    }
+    function showGameOverScoreOverlay() {
+      setOverlay(`SCORE ${state.score} / BEST ${state.bestScore}`, "\u3082\u3046\u4E00\u5EA6", true);
     }
     function emitBurst(x, y, count, color) {
       for (let i = 0; i < count; i += 1) {
@@ -1707,6 +1719,9 @@
       return true;
     }
     function endPress() {
+      if (state.mode === "gameover") {
+        awaitRestartRelease = false;
+      }
       if (!state.input.active) return;
       state.input.active = false;
       state.input.canPromote = false;
@@ -1752,6 +1767,9 @@
       state.input.active = false;
       state.input.canPromote = false;
       state.input.promoted = false;
+      gameOverLockUntilMs = 0;
+      awaitRestartRelease = false;
+      gameOverPhase = "banner";
       resetPlayer(player, CONFIG);
       refreshTerrain(state.lapStats);
     }
@@ -1764,14 +1782,19 @@
       hideOverlay();
       updatePauseButton();
     }
-    function endGame() {
+    function endGame(now = performance.now()) {
+      if (state.mode === "gameover") return;
       state.mode = "gameover";
+      gameOverLockUntilMs = now + 600;
+      awaitRestartRelease = true;
+      gameOverPhase = "banner";
       audio.stopBgm();
+      audio.playGameOverSfx();
       if (state.score > state.bestScore) {
         state.bestScore = state.score;
         localStorage.setItem(STORAGE_KEYS.best, String(state.bestScore));
       }
-      showGameOverOverlay();
+      showGameOverBanner();
       updatePauseButton();
     }
     function nextLap() {
@@ -1787,7 +1810,18 @@
     }
     function startPress(now) {
       audio.ensureReady();
-      if (state.mode === "title" || state.mode === "gameover") {
+      if (state.mode === "title") {
+        startGame();
+        return;
+      }
+      if (state.mode === "gameover") {
+        if (now < gameOverLockUntilMs || awaitRestartRelease) return;
+        if (gameOverPhase === "banner") {
+          gameOverPhase = "score";
+          awaitRestartRelease = true;
+          showGameOverScoreOverlay();
+          return;
+        }
         startGame();
         return;
       }
@@ -1801,8 +1835,19 @@
       state.input.canPromote = jumped;
     }
     function runPrimaryOverlayAction() {
+      const now = performance.now();
       setSettingsPanelOpen(false);
-      if (state.mode === "title" || state.mode === "gameover") {
+      if (state.mode === "title") {
+        startGame();
+        return;
+      }
+      if (state.mode === "gameover") {
+        if (now < gameOverLockUntilMs || awaitRestartRelease) return;
+        if (gameOverPhase === "banner") {
+          gameOverPhase = "score";
+          showGameOverScoreOverlay();
+          return;
+        }
         startGame();
         return;
       }

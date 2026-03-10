@@ -115,6 +115,7 @@ function enemyActiveCap(state, config) {
 
 function takeDamage(now, ctx) {
   const { player, state, config, audio, emitBurst, onGameOver } = ctx;
+  if (state.mode !== "running") return;
   if (now < player.invincibleUntilMs) return;
 
   player.invincibleUntilMs = now + config.player.invincibleMs;
@@ -128,7 +129,7 @@ function takeDamage(now, ctx) {
   emitBurst(player.x + player.w * 0.5, player.y + player.h * 0.4, 14, "#ff6c83");
 
   if (state.life <= 0) {
-    onGameOver();
+    onGameOver(now);
   }
 }
 
