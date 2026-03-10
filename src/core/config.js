@@ -60,6 +60,7 @@ export const CONFIG = {
     platformGapMax: 78,
     platformCost: 0.85,
     introSimpleLaps: 1,
+    highWallSpawnScale: 1.45,
     wallGapTightMaxPx: 17,
     wallGapOpenMinPx: 68,
   },
@@ -106,3 +107,4 @@ export const STORAGE_KEYS = {
 };
 
 export const TYPE_PRIORITY = { smallJump: 1, bigJump: 2, brake: 3 };
+

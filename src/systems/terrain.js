@@ -77,6 +77,11 @@ export function terrainSeedFrom(lap, trend, previousSummary) {
   ) >>> 0;
 }
 
+function highWallRollRate(baseRate, localScale, config) {
+  const scale = config.terrain.highWallSpawnScale || 1;
+  return clamp(baseRate * localScale * scale, 0, 0.95);
+}
+
 function generateLapTerrainLegacy(lap, trend, seed, config) {
   const { width, height } = config.canvas;
   const rand = mulberry32(seed);
@@ -116,7 +121,7 @@ function generateLapTerrainLegacy(lap, trend, seed, config) {
       const chainCount = 2 + Math.floor(rand() * 2);
       let chainX = cursor;
       for (let i = 0; i < chainCount; i += 1) {
-        const useHigh = !simpleLap && rand() < trend.highWallRate * 0.5;
+        const useHigh = !simpleLap && rand() < highWallRollRate(trend.highWallRate, 0.5, config);
         walls.push({
           x: chainX,
           y: config.world.groundY - (useHigh ? highH : lowH),
@@ -130,7 +135,7 @@ function generateLapTerrainLegacy(lap, trend, seed, config) {
       continue;
     }
 
-    const high = !simpleLap && rand() < trend.highWallRate;
+    const high = !simpleLap && rand() < highWallRollRate(trend.highWallRate, 1, config);
     walls.push({
       x: cursor,
       y: config.world.groundY - (high ? highH : lowH),
@@ -355,7 +360,7 @@ function materializeMotif(plan, trend, seed, lap, config) {
       while (x < motif.endX - config.obstacles.wallWidth - 12) {
         const spacing = randomRange(rand, simpleLap ? 98 : 80, simpleLap ? 162 : 146);
         if (rand() < trend.density * (simpleLap ? 0.16 : 0.34) && spend(0.55)) {
-          const high = !simpleLap && rand() < trend.highWallRate * 0.42;
+          const high = !simpleLap && rand() < highWallRollRate(trend.highWallRate, 0.42, config);
           pushWall(walls, x, high ? highH : lowH, high ? "highWall" : "lowWall", config);
           x += config.obstacles.wallWidth + spacing;
         } else {
@@ -373,7 +378,7 @@ function materializeMotif(plan, trend, seed, lap, config) {
         if (!spend(chainCost)) break;
 
         for (let i = 0; i < chainCount; i += 1) {
-          const useHigh = rand() < trend.highWallRate * 0.52;
+          const useHigh = rand() < highWallRollRate(trend.highWallRate, 0.52, config);
           pushWall(walls, x, useHigh ? highH : lowH, useHigh ? "highWall" : "lowWall", config);
           x += config.obstacles.wallWidth + randomRange(rand, 26, 42);
         }
@@ -398,7 +403,7 @@ function materializeMotif(plan, trend, seed, lap, config) {
         }
 
         if (rand() < trend.density * 0.4 && spend(0.64)) {
-          const high = rand() < localHighRate * 0.45;
+          const high = rand() < highWallRollRate(localHighRate, 0.45, config);
           pushWall(walls, x, high ? highH : lowH, high ? "highWall" : "lowWall", config);
           x += config.obstacles.wallWidth + randomRange(rand, 44, 92);
           continue;
@@ -432,7 +437,7 @@ function materializeMotif(plan, trend, seed, lap, config) {
         }
 
         if (rand() < trend.density * 0.24 && spend(0.58)) {
-          const high = rand() < localHighRate * 0.35;
+          const high = rand() < highWallRollRate(localHighRate, 0.35, config);
           pushWall(walls, x, high ? highH : lowH, high ? "highWall" : "lowWall", config);
           x += config.obstacles.wallWidth + randomRange(rand, 52, 98);
           continue;
@@ -613,3 +618,5 @@ export function enemyCapForLap(lap, config) {
     config.difficulty.enemyMaxCap
   );
 }
+
+

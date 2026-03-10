@@ -62,6 +62,7 @@
       platformGapMax: 78,
       platformCost: 0.85,
       introSimpleLaps: 1,
+      highWallSpawnScale: 1.45,
       wallGapTightMaxPx: 17,
       wallGapOpenMinPx: 68
     },
@@ -892,6 +893,10 @@
   function terrainSeedFrom(lap, trend, previousSummary) {
     return lap * 9973 + Math.floor(trend.density * 1e3) * 37 + Math.floor((previousSummary.jumps || 0) * 13) + Math.floor((previousSummary.pitFalls || 0) * 29) >>> 0;
   }
+  function highWallRollRate(baseRate, localScale, config) {
+    const scale = config.terrain.highWallSpawnScale || 1;
+    return clamp(baseRate * localScale * scale, 0, 0.95);
+  }
   function generateLapTerrainLegacy(lap, trend, seed, config) {
     const { width, height } = config.canvas;
     const rand = mulberry32(seed);
@@ -923,7 +928,7 @@
         const chainCount = 2 + Math.floor(rand() * 2);
         let chainX = cursor;
         for (let i = 0; i < chainCount; i += 1) {
-          const useHigh = !simpleLap && rand() < trend.highWallRate * 0.5;
+          const useHigh = !simpleLap && rand() < highWallRollRate(trend.highWallRate, 0.5, config);
           walls.push({
             x: chainX,
             y: config.world.groundY - (useHigh ? highH : lowH),
@@ -936,7 +941,7 @@
         cursor = chainX + config.obstacles.minGap;
         continue;
       }
-      const high = !simpleLap && rand() < trend.highWallRate;
+      const high = !simpleLap && rand() < highWallRollRate(trend.highWallRate, 1, config);
       walls.push({
         x: cursor,
         y: config.world.groundY - (high ? highH : lowH),
@@ -1130,7 +1135,7 @@
         while (x < motif.endX - config.obstacles.wallWidth - 12) {
           const spacing = randomRange(rand, simpleLap ? 98 : 80, simpleLap ? 162 : 146);
           if (rand() < trend.density * (simpleLap ? 0.16 : 0.34) && spend(0.55)) {
-            const high = !simpleLap && rand() < trend.highWallRate * 0.42;
+            const high = !simpleLap && rand() < highWallRollRate(trend.highWallRate, 0.42, config);
             pushWall(walls, x, high ? highH : lowH, high ? "highWall" : "lowWall", config);
             x += config.obstacles.wallWidth + spacing;
           } else {
@@ -1146,7 +1151,7 @@
           const chainCost = 0.88 + chainCount * 0.36;
           if (!spend(chainCost)) break;
           for (let i = 0; i < chainCount; i += 1) {
-            const useHigh = rand() < trend.highWallRate * 0.52;
+            const useHigh = rand() < highWallRollRate(trend.highWallRate, 0.52, config);
             pushWall(walls, x, useHigh ? highH : lowH, useHigh ? "highWall" : "lowWall", config);
             x += config.obstacles.wallWidth + randomRange(rand, 26, 42);
           }
@@ -1167,7 +1172,7 @@
             continue;
           }
           if (rand() < trend.density * 0.4 && spend(0.64)) {
-            const high = rand() < localHighRate * 0.45;
+            const high = rand() < highWallRollRate(localHighRate, 0.45, config);
             pushWall(walls, x, high ? highH : lowH, high ? "highWall" : "lowWall", config);
             x += config.obstacles.wallWidth + randomRange(rand, 44, 92);
             continue;
@@ -1196,7 +1201,7 @@
             continue;
           }
           if (rand() < trend.density * 0.24 && spend(0.58)) {
-            const high = rand() < localHighRate * 0.35;
+            const high = rand() < highWallRollRate(localHighRate, 0.35, config);
             pushWall(walls, x, high ? highH : lowH, high ? "highWall" : "lowWall", config);
             x += config.obstacles.wallWidth + randomRange(rand, 52, 98);
             continue;
