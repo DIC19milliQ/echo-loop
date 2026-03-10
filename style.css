@@ -21,6 +21,8 @@ body {
   font-family: "Trebuchet MS", "Verdana", sans-serif;
   touch-action: manipulation;
   user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 
 body {
@@ -107,10 +109,22 @@ canvas {
   font-weight: 700;
 }
 
+.overlay-actions {
+  margin-top: 14px;
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+}
+
 .overlay-help {
   margin: 12px 0 0;
   color: var(--muted);
   font-size: clamp(12px, 1.7vw, 15px);
+}
+
+.control-row {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .help-inline {
@@ -118,6 +132,44 @@ canvas {
   color: var(--muted);
   text-align: center;
   font-size: 13px;
+  pointer-events: none;
+}
+
+button,
+.ui-control {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  touch-action: manipulation;
+}
+
+.overlay-btn,
+.pause-btn {
+  border: 1px solid #6fa3cf;
+  background: linear-gradient(180deg, #22486f, #163657);
+  color: #e8f3ff;
+  border-radius: 10px;
+  padding: 8px 14px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.overlay-btn-primary {
+  border-color: #88c8ff;
+  background: linear-gradient(180deg, #2e5f91, #21466e);
+}
+
+.pause-btn {
+  min-width: 120px;
+}
+
+.ui-control:focus-visible {
+  outline: 2px solid #9fd9ff;
+  outline-offset: 2px;
+}
+
+.ui-control:disabled {
+  opacity: 0.55;
 }
 
 @media (max-width: 680px) {
@@ -139,6 +191,12 @@ canvas {
 
   .value {
     font-size: 16px;
+  }
+
+  .pause-btn {
+    min-width: 104px;
+    padding: 8px 12px;
+    font-size: 13px;
   }
 
   .help-inline {

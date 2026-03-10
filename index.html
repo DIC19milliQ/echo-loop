@@ -20,20 +20,25 @@
       <div id="overlay" class="overlay">
         <h1 class="title">ECHO LOOP</h1>
         <p id="overlayMessage" class="overlay-message">SPACE / TAP で開始</p>
+        <div id="overlayActions" class="overlay-actions">
+          <button id="overlayPrimaryButton" type="button" class="ui-control overlay-btn overlay-btn-primary">開始</button>
+          <button id="overlaySettingsButton" type="button" class="ui-control overlay-btn">設定</button>
+        </div>
         <p class="overlay-help">
           タップ: ジャンプ / 長押し中: 大ジャンプに昇格
         </p>
       </div>
     </section>
 
+    <div class="control-row">
+      <button id="pauseButton" type="button" class="ui-control pause-btn" aria-label="一時停止">一時停止</button>
+    </div>
+
     <p class="help-inline">
-      操作: タップでジャンプ、長押し中に大ジャンプへ昇格
+      操作: タップでジャンプ、長押しで大ジャンプ / PC: Spaceで開始・再開、Escで一時停止
     </p>
   </main>
 
   <script src="main.js"></script>
 </body>
 </html>
-
-
-

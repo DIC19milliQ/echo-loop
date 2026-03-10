@@ -67,6 +67,10 @@ const canvas = document.getElementById("gameCanvas");
 const ctx = canvas.getContext("2d");
 const overlayEl = document.getElementById("overlay");
 const overlayMessageEl = document.getElementById("overlayMessage");
+const overlayActionsEl = document.getElementById("overlayActions");
+const overlayPrimaryButtonEl = document.getElementById("overlayPrimaryButton");
+const overlaySettingsButtonEl = document.getElementById("overlaySettingsButton");
+const pauseButtonEl = document.getElementById("pauseButton");
 const hud = {
   life: document.getElementById("lifeValue"),
   lap: document.getElementById("lapValue"),
@@ -152,13 +156,66 @@ function randomRange(rand, min, max) {
   return min + (max - min) * rand();
 }
 
-function setOverlay(text) {
+function setOverlay(text, primaryLabel) {
   overlayMessageEl.textContent = text;
+  overlayPrimaryButtonEl.textContent = primaryLabel;
+  overlayActionsEl.hidden = false;
   overlayEl.classList.remove("hidden");
 }
 
 function hideOverlay() {
   overlayEl.classList.add("hidden");
+}
+
+function updatePauseButton() {
+  pauseButtonEl.textContent = state.mode === "paused" ? "再開" : "一時停止";
+  pauseButtonEl.disabled = state.mode === "title" || state.mode === "gameover";
+}
+
+function showTitleOverlay() {
+  setOverlay("SPACE / TAP で開始", "開始");
+}
+
+function showPauseOverlay() {
+  setOverlay("PAUSED", "再開");
+}
+
+function showGameOverOverlay() {
+  setOverlay(`GAME OVER  SCORE ${state.score} / BEST ${state.bestScore}  (SPACE で再開)`, "もう一度");
+}
+
+function pauseGame() {
+  if (state.mode !== "running") return;
+  state.mode = "paused";
+  endPress();
+  showPauseOverlay();
+  updatePauseButton();
+}
+
+function resumeGame() {
+  if (state.mode !== "paused") return;
+  state.mode = "running";
+  hideOverlay();
+  updatePauseButton();
+}
+
+function togglePause() {
+  if (state.mode === "running") {
+    pauseGame();
+  } else if (state.mode === "paused") {
+    resumeGame();
+  }
+}
+
+function runPrimaryOverlayAction() {
+  if (state.mode === "title" || state.mode === "gameover") {
+    startGame();
+    return;
+  }
+
+  if (state.mode === "paused") {
+    resumeGame();
+  }
 }
 
 function resetPlayer() {
@@ -208,6 +265,7 @@ function startGame() {
   resetRun();
   state.mode = "running";
   hideOverlay();
+  updatePauseButton();
 }
 
 function endGame() {
@@ -216,7 +274,8 @@ function endGame() {
     state.bestScore = state.score;
     localStorage.setItem(STORAGE_BEST, String(state.bestScore));
   }
-  setOverlay(`GAME OVER  SCORE ${state.score} / BEST ${state.bestScore}  (SPACE/TAP で再開)`);
+  showGameOverOverlay();
+  updatePauseButton();
 }
 
 function nextLap() {
@@ -522,6 +581,7 @@ function startPress(now) {
     return;
   }
 
+  if (state.mode === "paused") return;
   if (state.mode !== "running") return;
   if (state.input.active) return;
 
@@ -961,8 +1021,20 @@ function loop(now) {
 }
 
 function onKeyDown(e) {
+  if (e.code === "Escape") {
+    e.preventDefault();
+    togglePause();
+    return;
+  }
+
   if (e.code !== "Space") return;
   e.preventDefault();
+
+  if (state.mode === "paused") {
+    resumeGame();
+    return;
+  }
+
   startPress(performance.now());
 }
 
@@ -972,24 +1044,46 @@ function onKeyUp(e) {
   endPress();
 }
 
+function isUiControlTarget(target) {
+  return target instanceof Element && target.closest(".ui-control");
+}
+
 function onPointerDown(e) {
+  if (isUiControlTarget(e.target)) return;
   e.preventDefault();
   startPress(performance.now());
 }
 
 function onPointerUp(e) {
+  if (isUiControlTarget(e.target)) return;
   e.preventDefault();
   endPress();
 }
 
 function onTouchStart(e) {
+  if (isUiControlTarget(e.target)) return;
   e.preventDefault();
   startPress(performance.now());
 }
 
 function onTouchEnd(e) {
+  if (isUiControlTarget(e.target)) return;
   e.preventDefault();
   endPress();
+}
+
+function onPauseButtonClick(e) {
+  e.preventDefault();
+  togglePause();
+}
+
+function onOverlayPrimaryClick(e) {
+  e.preventDefault();
+  runPrimaryOverlayAction();
+}
+
+function onOverlaySettingsClick(e) {
+  e.preventDefault();
 }
 
 window.addEventListener("keydown", onKeyDown, { passive: false });
@@ -1004,9 +1098,15 @@ if (!window.PointerEvent) {
   window.addEventListener("touchcancel", onTouchEnd, { passive: false });
 }
 
+pauseButtonEl.addEventListener("click", onPauseButtonClick);
+overlayPrimaryButtonEl.addEventListener("click", onOverlayPrimaryClick);
+overlaySettingsButtonEl.addEventListener("click", onOverlaySettingsClick);
+overlaySettingsButtonEl.disabled = true;
+overlaySettingsButtonEl.title = "準備中";
 canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 
-setOverlay("SPACE / TAP で開始");
+showTitleOverlay();
+updatePauseButton();
 state.terrain = generateLapTerrain(state.lap, state.trend, state.lapStats);
 hud.best.textContent = String(state.bestScore);
 requestAnimationFrame((t) => {
