@@ -34,6 +34,39 @@ const CONFIG = {
     enemyBaseCap: 6,
     enemyMaxCap: 15,
   },
+  terrain: {
+    useBrakeV2: true,
+    useMotifGenerator: true,
+    enablePlatforms: true,
+    baseDangerBudget: 9.8,
+    dangerBudgetPerLap: 0.28,
+    dangerBudgetVariance: 1.1,
+    maxSameMotifStreak: 2,
+    restZoneMinPerLap: 1,
+    motifWeights: {
+      flatRun: 0.95,
+      chain: 1.0,
+      pitZone: 0.9,
+      restZone: 0.56,
+      platformZone: 0.82,
+    },
+    platformRate: 0.16,
+    platformChainRate: 0.46,
+    platformHeightBandMin: 110,
+    platformHeightBandMax: 170,
+    platformWidthMin: 42,
+    platformWidthMax: 84,
+    platformGapMin: 34,
+    platformGapMax: 78,
+    platformCost: 0.85,
+    introSimpleLaps: 1,
+    wallGapTightMaxPx: 17,
+    wallGapOpenMinPx: 68,
+  },
+  debug: {
+    showTerrainOverlay: false,
+    logTerrainReason: false,
+  },
   enemies: {
     radius: 13,
     mergeProgressGap: 0.045,
@@ -412,16 +445,22 @@ const state = {
   enemies: [],
   particles: [],
   terrain: null,
+  terrainDebug: null,
   trend: {
     density: CONFIG.difficulty.startDensity,
     highWallRate: CONFIG.difficulty.startHighWallRate,
     chainRate: CONFIG.difficulty.startChainRate,
     pitRate: CONFIG.difficulty.startPitRate,
+    brakePressure: 0,
   },
   lapStats: {
     jumps: 0,
     bigJumps: 0,
     brakes: 0,
+    stallTimeSec: 0,
+    lapTimeSec: 0,
+    forwardDistancePx: 0,
+    progressEfficiency: 1,
     pitFalls: 0,
     hits: 0,
   },
@@ -472,6 +511,55 @@ function randomRange(rand, min, max) {
   return min + (max - min) * rand();
 }
 
+function removeWallsOnPits(walls, pits) {
+  if (!pits.length || !walls.length) return walls;
+  return walls.filter((wall) => {
+    for (const pit of pits) {
+      if (wall.x < pit.x + pit.w - 2 && wall.x + wall.w > pit.x + 2) {
+        return false;
+      }
+    }
+    return true;
+  });
+}
+
+function enforceWallGapRule(walls, laneWidth) {
+  if (!walls.length) return [];
+
+  const tightMax = Math.max(2, CONFIG.terrain.wallGapTightMaxPx || Math.floor(CONFIG.player.width * 0.5));
+  const openMin = Math.max(tightMax + 1, CONFIG.terrain.wallGapOpenMinPx || CONFIG.player.width * 2);
+  const sorted = [...walls].sort((a, b) => a.x - b.x);
+  const out = [Object.assign({}, sorted[0])];
+
+  for (let i = 1; i < sorted.length; i += 1) {
+    const current = Object.assign({}, sorted[i]);
+    const prev = out[out.length - 1];
+
+    const prevEnd = prev.x + prev.w;
+    if (current.x < prevEnd + 2) {
+      current.x = prevEnd + 2;
+    }
+
+    let gap = current.x - prevEnd;
+    if (gap > tightMax && gap < openMin) {
+      current.x = prevEnd + openMin;
+      gap = openMin;
+    }
+
+    if (current.x + current.w >= laneWidth - 20) continue;
+
+    // Tight clusters are treated as one mass to avoid pseudo-2nd-floor visual ambiguity.
+    if (gap <= tightMax) {
+      current.h = prev.h;
+      current.y = prev.y;
+      current.type = prev.type;
+    }
+
+    out.push(current);
+  }
+
+  return out;
+}
 function updateAudioToggleUi() {
   bgmVolumeSelectEl.value = String(audioState.bgmVolumeLevel);
   sfxVolumeSelectEl.value = String(audioState.sfxVolumeLevel);
@@ -581,11 +669,16 @@ function resetRun() {
     highWallRate: CONFIG.difficulty.startHighWallRate,
     chainRate: CONFIG.difficulty.startChainRate,
     pitRate: CONFIG.difficulty.startPitRate,
+    brakePressure: 0,
   };
   state.lapStats = {
     jumps: 0,
     bigJumps: 0,
     brakes: 0,
+    stallTimeSec: 0,
+    lapTimeSec: 0,
+    forwardDistancePx: 0,
+    progressEfficiency: 1,
     pitFalls: 0,
     hits: 0,
   };
@@ -629,6 +722,10 @@ function nextLap() {
     jumps: 0,
     bigJumps: 0,
     brakes: 0,
+    stallTimeSec: 0,
+    lapTimeSec: 0,
+    forwardDistancePx: 0,
+    progressEfficiency: 1,
     pitFalls: 0,
     hits: 0,
   };
@@ -647,10 +744,19 @@ function enemyCapForLap(lap) {
 
 function summarizeLap(stats) {
   const jumpSafe = Math.max(1, stats.jumps);
+  const lapTimeSec = Math.max(0.001, stats.lapTimeSec || 0);
+  const baseTravel = Math.max(1, lapTimeSec * computeBaseSpeed());
+  const measuredEfficiency = clamp((stats.forwardDistancePx || 0) / baseTravel, 0, 1.3);
+  const progressEfficiency = clamp(stats.progressEfficiency || measuredEfficiency, 0, 1.3);
+
   return {
     jumps: stats.jumps,
     bigJumpRatio: stats.bigJumps / jumpSafe,
     brakes: stats.brakes,
+    stallTimeSec: stats.stallTimeSec || 0,
+    lapTimeSec,
+    forwardDistancePx: stats.forwardDistancePx || 0,
+    progressEfficiency,
     pitFalls: stats.pitFalls,
     hits: stats.hits,
     lap: state.lap,
@@ -659,9 +765,19 @@ function summarizeLap(stats) {
 
 function evolveTrend(currentTrend, lapSummary, lap) {
   const jumpPressure = clamp(lapSummary.jumps / 10, 0, 1);
-  const brakePressure = clamp(lapSummary.brakes / 6, 0, 1);
   const pitPressure = clamp(lapSummary.pitFalls / 3, 0, 1);
   const hitPressure = clamp(lapSummary.hits / 3, 0, 1);
+
+  let brakePressure = clamp(lapSummary.brakes / 6, 0, 1);
+  if (CONFIG.terrain.useBrakeV2) {
+    const stallNorm = clamp((lapSummary.stallTimeSec || 0) / 1.8, 0, 1);
+    const effPenalty = clamp((0.92 - (lapSummary.progressEfficiency || 1)) / 0.32, 0, 1);
+    brakePressure = 0.75 * stallNorm + 0.25 * effPenalty;
+  }
+
+  const baseHighWall = CONFIG.difficulty.startHighWallRate + lapSummary.bigJumpRatio * 0.24 + lap * 0.003;
+  const baseChain = CONFIG.difficulty.startChainRate + lap * 0.003;
+  const basePit = CONFIG.difficulty.startPitRate + pitPressure * 0.24 + lap * 0.003;
 
   return {
     density: clamp(
@@ -669,32 +785,24 @@ function evolveTrend(currentTrend, lapSummary, lap) {
       CONFIG.difficulty.startDensity,
       CONFIG.difficulty.maxDensity
     ),
-    highWallRate: clamp(
-      CONFIG.difficulty.startHighWallRate + lapSummary.bigJumpRatio * 0.24 + lap * 0.003,
-      0.12,
-      0.62
-    ),
-    chainRate: clamp(
-      CONFIG.difficulty.startChainRate + brakePressure * 0.22 + lap * 0.003,
-      0.08,
-      0.55
-    ),
-    pitRate: clamp(
-      CONFIG.difficulty.startPitRate + pitPressure * 0.24 + lap * 0.003,
-      0.1,
-      0.42
-    ),
+    highWallRate: clamp(baseHighWall - brakePressure * 0.04, 0.12, 0.62),
+    chainRate: clamp(baseChain + brakePressure * 0.1, 0.08, 0.55),
+    pitRate: clamp(basePit - brakePressure * 0.06, 0.1, 0.42),
+    brakePressure: clamp(brakePressure, 0, 1),
   };
 }
 
-function generateLapTerrain(lap, trend, previousSummary) {
+function terrainSeedFrom(lap, trend, previousSummary) {
+  return (
+    lap * 9973 +
+    Math.floor(trend.density * 1000) * 37 +
+    Math.floor((previousSummary.jumps || 0) * 13) +
+    Math.floor((previousSummary.pitFalls || 0) * 29)
+  ) >>> 0;
+}
+
+function generateLapTerrainLegacy(lap, trend, previousSummary, seed) {
   const { width, height } = CONFIG.canvas;
-  const seed =
-    (lap * 9973 +
-      Math.floor(trend.density * 1000) * 37 +
-      Math.floor((previousSummary.jumps || 0) * 13) +
-      Math.floor((previousSummary.pitFalls || 0) * 29)) >>>
-    0;
   const rand = mulberry32(seed);
 
   const walls = [];
@@ -703,6 +811,7 @@ function generateLapTerrain(lap, trend, previousSummary) {
   const lowH = CONFIG.obstacles.lowWallHeight;
   const highH = CONFIG.obstacles.highWallHeight;
   const wallW = CONFIG.obstacles.wallWidth;
+  const simpleLap = lap <= CONFIG.terrain.introSimpleLaps;
 
   let cursor = CONFIG.obstacles.safeStartZone;
   const laneEnd = width - 80;
@@ -710,7 +819,7 @@ function generateLapTerrain(lap, trend, previousSummary) {
   while (cursor < laneEnd) {
     const progress = cursor / width;
     const spacing = randomRange(rand, 70, 142) - trend.chainRate * 30;
-    const willPlace = rand() < trend.density;
+    const willPlace = rand() < trend.density * (simpleLap ? 0.55 : 1);
 
     if (!willPlace) {
       cursor += spacing;
@@ -718,7 +827,7 @@ function generateLapTerrain(lap, trend, previousSummary) {
     }
 
     const roll = rand();
-    const allowPit = progress > 0.12 && progress < 0.93;
+    const allowPit = !simpleLap && progress > 0.12 && progress < 0.93;
 
     if (allowPit && roll < trend.pitRate * 1.35) {
       const pitW = randomRange(rand, CONFIG.obstacles.pitMinWidth, CONFIG.obstacles.pitMaxWidth);
@@ -731,7 +840,7 @@ function generateLapTerrain(lap, trend, previousSummary) {
       const chainCount = 2 + Math.floor(rand() * 2);
       let chainX = cursor;
       for (let i = 0; i < chainCount; i += 1) {
-        const useHigh = rand() < trend.highWallRate * 0.5;
+        const useHigh = !simpleLap && rand() < trend.highWallRate * 0.5;
         walls.push({
           x: chainX,
           y: CONFIG.world.groundY - (useHigh ? highH : lowH),
@@ -745,7 +854,7 @@ function generateLapTerrain(lap, trend, previousSummary) {
       continue;
     }
 
-    const high = rand() < trend.highWallRate;
+    const high = !simpleLap && rand() < trend.highWallRate;
     walls.push({
       x: cursor,
       y: CONFIG.world.groundY - (high ? highH : lowH),
@@ -761,12 +870,414 @@ function generateLapTerrain(lap, trend, previousSummary) {
     w: clamp(pit.w, CONFIG.obstacles.pitMinWidth, CONFIG.obstacles.pitMaxWidth + 24),
   }));
 
+  const filteredLegacyPits = mergedPits.filter((p) => p.x + p.w < width - 10);
+  const filteredLegacyWalls = removeWallsOnPits(
+    enforceWallGapRule(walls.filter((w) => w.x + w.w < width - 20), width),
+    filteredLegacyPits
+  );
+
   return {
     width,
     height,
-    walls: walls.filter((w) => w.x + w.w < width - 20),
-    pits: mergedPits.filter((p) => p.x + p.w < width - 10),
+    walls: filteredLegacyWalls,
+    pits: filteredLegacyPits,
+    platforms: [],
+    debug: {
+      seed,
+      mode: "legacy",
+      motifs: ["legacy"],
+      danger: { target: 0, spent: 0, reserve: 0 },
+      trend,
+    },
   };
+}
+
+function buildMotifCatalog(trend, lap) {
+  const mw = CONFIG.terrain.motifWeights;
+  return {
+    flatRun: {
+      id: "flatRun",
+      weight: mw.flatRun * clamp(1.16 - trend.density * 0.54, 0.55, 1.35),
+      minLen: 120,
+      maxLen: 220,
+    },
+    chain: {
+      id: "chain",
+      weight: mw.chain * clamp(0.52 + trend.chainRate * 2.1, 0.4, 1.55),
+      minLen: 120,
+      maxLen: 230,
+    },
+    pitZone: {
+      id: "pitZone",
+      weight: mw.pitZone * clamp(0.48 + trend.pitRate * 2.2, 0.35, 1.6) * (lap <= CONFIG.terrain.introSimpleLaps ? 0 : 1),
+      minLen: 120,
+      maxLen: 220,
+    },
+    restZone: {
+      id: "restZone",
+      weight: mw.restZone * clamp(1.25 - trend.density * 0.62, 0.65, 1.6),
+      minLen: 90,
+      maxLen: 180,
+    },
+    platformZone: {
+      id: "platformZone",
+      weight:
+        mw.platformZone *
+        (CONFIG.terrain.enablePlatforms && lap > CONFIG.terrain.introSimpleLaps ? 1 : 0) *
+        clamp(CONFIG.terrain.platformRate * (0.8 + trend.highWallRate * 0.9), 0, 1.1),
+      minLen: 140,
+      maxLen: 240,
+    },
+  };
+}
+
+function pickMotif(rand, motifCatalog, prevId, streak, restRequired) {
+  const entries = [];
+  for (const id of Object.keys(motifCatalog)) {
+    const motif = motifCatalog[id];
+    if (motif.weight <= 0) continue;
+    if (id === prevId && streak >= CONFIG.terrain.maxSameMotifStreak) continue;
+
+    let weight = motif.weight;
+    if (restRequired > 0 && id === "restZone") {
+      weight *= 1.55;
+    }
+
+    entries.push({ id, weight });
+  }
+
+  if (!entries.length) return "flatRun";
+
+  const sum = entries.reduce((acc, e) => acc + e.weight, 0);
+  let roll = rand() * sum;
+  for (const e of entries) {
+    roll -= e.weight;
+    if (roll <= 0) return e.id;
+  }
+
+  return entries[entries.length - 1].id;
+}
+
+function buildLapPlan(lap, trend, previousSummary, seed) {
+  const width = CONFIG.canvas.width;
+  const start = CONFIG.obstacles.safeStartZone;
+  const laneEnd = width - 80;
+  const rand = mulberry32(seed ^ 0x9e3779b9);
+  const motifCatalog = buildMotifCatalog(trend, lap);
+
+  const motifs = [];
+  let cursor = start;
+  let prevId = "";
+  let sameStreak = 0;
+  let restCount = 0;
+
+  if (lap <= CONFIG.terrain.introSimpleLaps) {
+    const simpleMid = start + (laneEnd - start) * 0.6;
+    return {
+      motifs: [
+        { id: "flatRun", startX: start, endX: simpleMid },
+        { id: "restZone", startX: simpleMid, endX: laneEnd },
+      ],
+      budget: {
+        target: 4.8,
+        spent: 0,
+        reserve: 0.35,
+      },
+    };
+  }
+  while (cursor < laneEnd) {
+    const restRequired = Math.max(0, CONFIG.terrain.restZoneMinPerLap - restCount);
+    const id = pickMotif(rand, motifCatalog, prevId, sameStreak, restRequired);
+    const spec = motifCatalog[id] || motifCatalog.flatRun;
+    const len = Math.min(laneEnd - cursor, randomRange(rand, spec.minLen, spec.maxLen));
+
+    motifs.push({ id, startX: cursor, endX: cursor + len });
+    cursor += len;
+
+    if (id === "restZone") restCount += 1;
+    if (id === prevId) {
+      sameStreak += 1;
+    } else {
+      sameStreak = 1;
+      prevId = id;
+    }
+  }
+
+  if (restCount < CONFIG.terrain.restZoneMinPerLap && motifs.length) {
+    for (let i = motifs.length - 1; i >= 0; i -= 1) {
+      if (motifs[i].id !== "restZone") {
+        motifs[i].id = "restZone";
+        restCount += 1;
+      }
+      if (restCount >= CONFIG.terrain.restZoneMinPerLap) break;
+    }
+  }
+
+  if (
+    CONFIG.terrain.enablePlatforms &&
+    lap > CONFIG.terrain.introSimpleLaps &&
+    !motifs.some((m) => m.id === "platformZone")
+  ) {
+    const boostPlatform = deterministicNoise(seed, lap * 3, previousSummary.hits || 0) < 0.45;
+    if (boostPlatform) {
+      const candidateIndex = motifs.findIndex((m) => m.id === "flatRun" || m.id === "chain");
+      if (candidateIndex >= 0) {
+        motifs[candidateIndex].id = "platformZone";
+      }
+    }
+  }
+  const budgetRand = deterministicNoise(seed, lap + 31, previousSummary.hits || 0);
+  const budgetTarget =
+    CONFIG.terrain.baseDangerBudget +
+    (lap - 1) * CONFIG.terrain.dangerBudgetPerLap +
+    (budgetRand * 2 - 1) * CONFIG.terrain.dangerBudgetVariance;
+
+  return {
+    motifs,
+    budget: {
+      target: clamp(budgetTarget, 5.5, 26),
+      spent: 0,
+      reserve: 0.55,
+    },
+  };
+}
+
+function pushWall(walls, x, h, type) {
+  walls.push({
+    x,
+    y: CONFIG.world.groundY - h,
+    w: CONFIG.obstacles.wallWidth,
+    h,
+    type,
+  });
+}
+
+function materializeMotif(plan, trend, seed, lap) {
+  const rand = mulberry32(seed ^ 0x85ebca6b);
+  const walls = [];
+  const pits = [];
+  const platforms = [];
+  const lowH = CONFIG.obstacles.lowWallHeight;
+  const highH = CONFIG.obstacles.highWallHeight;
+  const budget = plan.budget;
+  const simpleLap = lap <= CONFIG.terrain.introSimpleLaps;
+
+  function canSpend(cost) {
+    return budget.spent + cost <= budget.target + budget.reserve;
+  }
+
+  function spend(cost) {
+    if (!canSpend(cost)) return false;
+    budget.spent += cost;
+    return true;
+  }
+
+  for (const motif of plan.motifs) {
+    let x = motif.startX;
+
+    if (motif.id === "restZone") {
+      continue;
+    }
+
+    if (motif.id === "flatRun") {
+      while (x < motif.endX - CONFIG.obstacles.wallWidth - 12) {
+        const spacing = randomRange(rand, simpleLap ? 98 : 80, simpleLap ? 162 : 146);
+        if (rand() < trend.density * (simpleLap ? 0.16 : 0.34) && spend(0.55)) {
+          const high = !simpleLap && rand() < trend.highWallRate * 0.42;
+          pushWall(walls, x, high ? highH : lowH, high ? "highWall" : "lowWall");
+          x += CONFIG.obstacles.wallWidth + spacing;
+        } else {
+          x += spacing;
+        }
+      }
+      continue;
+    }
+
+    if (motif.id === "chain") {
+      if (simpleLap) continue;
+      while (x < motif.endX - CONFIG.obstacles.wallWidth * 2) {
+        const chainCount = 2 + Math.floor(rand() * 2);
+        const chainCost = 0.88 + chainCount * 0.36;
+        if (!spend(chainCost)) break;
+
+        for (let i = 0; i < chainCount; i += 1) {
+          const useHigh = rand() < trend.highWallRate * 0.52;
+          pushWall(walls, x, useHigh ? highH : lowH, useHigh ? "highWall" : "lowWall");
+          x += CONFIG.obstacles.wallWidth + randomRange(rand, 26, 42);
+        }
+
+        x += randomRange(rand, 36, 68);
+      }
+      continue;
+    }
+
+    if (motif.id === "pitZone") {
+      if (simpleLap) continue;
+      const localPitRate = trend.pitRate;
+      const localHighRate = trend.highWallRate;
+
+      while (x < motif.endX - 52) {
+        const wantPit = rand() < localPitRate * 1.35;
+        if (wantPit && spend(1.1)) {
+          const pitW = randomRange(rand, CONFIG.obstacles.pitMinWidth, CONFIG.obstacles.pitMaxWidth);
+          pits.push({ x, w: pitW });
+          x += pitW + CONFIG.obstacles.minGap + randomRange(rand, 24, 62);
+          continue;
+        }
+
+        if (rand() < trend.density * 0.4 && spend(0.64)) {
+          const high = rand() < localHighRate * 0.45;
+          pushWall(walls, x, high ? highH : lowH, high ? "highWall" : "lowWall");
+          x += CONFIG.obstacles.wallWidth + randomRange(rand, 44, 92);
+          continue;
+        }
+
+        x += randomRange(rand, 54, 102);
+      }
+      continue;
+    }
+
+    if (motif.id === "platformZone") {
+      if (simpleLap) continue;
+      const localPitRate = trend.pitRate * 0.72;
+      const localHighRate = trend.highWallRate * 0.86;
+
+      while (x < motif.endX - 46) {
+        const makePlatform = rand() < CONFIG.terrain.platformChainRate;
+        if (makePlatform && spend(CONFIG.terrain.platformCost)) {
+          const w = randomRange(rand, CONFIG.terrain.platformWidthMin, CONFIG.terrain.platformWidthMax);
+          const hOffset = randomRange(rand, CONFIG.terrain.platformHeightBandMin, CONFIG.terrain.platformHeightBandMax);
+          const y = CONFIG.world.groundY - hOffset;
+          platforms.push({ x, y, w, h: 10, type: "platform" });
+          x += w + randomRange(rand, CONFIG.terrain.platformGapMin, CONFIG.terrain.platformGapMax);
+          continue;
+        }
+
+        if (rand() < localPitRate * 0.35 && spend(0.8)) {
+          pits.push({ x, w: randomRange(rand, CONFIG.obstacles.pitMinWidth, CONFIG.obstacles.pitMaxWidth * 0.86) });
+          x += CONFIG.obstacles.minGap + randomRange(rand, 36, 80);
+          continue;
+        }
+
+        if (rand() < trend.density * 0.24 && spend(0.58)) {
+          const high = rand() < localHighRate * 0.35;
+          pushWall(walls, x, high ? highH : lowH, high ? "highWall" : "lowWall");
+          x += CONFIG.obstacles.wallWidth + randomRange(rand, 52, 98);
+          continue;
+        }
+
+        x += randomRange(rand, 52, 96);
+      }
+    }
+  }
+
+  return { walls, pits, platforms, budget };
+}
+
+function normalizeTerrainResult(rawTerrain, trend, plan, seed) {
+  const width = CONFIG.canvas.width;
+  const height = CONFIG.canvas.height;
+
+  const mergedPits = mergeIntervals(rawTerrain.pits, 8).map((pit) => ({
+    x: clamp(pit.x, CONFIG.obstacles.safeStartZone, width - 40),
+    w: clamp(pit.w, CONFIG.obstacles.pitMinWidth, CONFIG.obstacles.pitMaxWidth + 24),
+  }));
+
+  const filteredPits = mergedPits.filter((p) => p.x + p.w < width - 10);
+  const filteredWalls = removeWallsOnPits(
+    enforceWallGapRule(rawTerrain.walls.filter((w) => w.x + w.w < width - 20), width),
+    filteredPits
+  );
+
+  const terrain = {
+    width,
+    height,
+    walls: filteredWalls,
+    pits: filteredPits,
+    platforms: (rawTerrain.platforms || []).filter((pf) => pf.x + pf.w < width - 12),
+    debug: {
+      seed,
+      mode: CONFIG.terrain.useMotifGenerator ? "motif" : "legacy",
+      motifs: plan ? plan.motifs.map((m) => m.id) : ["legacy"],
+      danger: plan ? plan.budget : { target: 0, spent: 0, reserve: 0 },
+      trend: {
+        density: trend.density,
+        highWallRate: trend.highWallRate,
+        chainRate: trend.chainRate,
+        pitRate: trend.pitRate,
+        brakePressure: trend.brakePressure || 0,
+      },
+    },
+  };
+
+  if (CONFIG.debug.logTerrainReason) {
+    const wallCount = terrain.walls.length;
+    const pitWidth = terrain.pits.reduce((acc, p) => acc + p.w, 0);
+    const platformCount = terrain.platforms.length;
+    console.groupCollapsed(`terrain lap=${state.lap} seed=${seed}`);
+    console.log("trend", terrain.debug.trend);
+    console.log("motifs", terrain.debug.motifs);
+    console.log("budget", terrain.debug.danger);
+    console.log("counts", { wallCount, pitWidth, platformCount });
+    console.groupEnd();
+  }
+
+  return terrain;
+}
+
+function ensureEarlyLapAnchorWall(terrain, lap, seed) {
+  const noHazard = terrain.walls.length === 0 && terrain.pits.length === 0 && (terrain.platforms || []).length === 0;
+  const needAnchor = lap === 1 || noHazard;
+  if (!needAnchor) return terrain;
+
+  const wallW = CONFIG.obstacles.wallWidth;
+  const lowH = CONFIG.obstacles.lowWallHeight;
+  const minX = CONFIG.obstacles.safeStartZone + 28;
+  const maxX = Math.max(minX + 20, terrain.width - 140);
+  const rand = mulberry32((seed ^ 0xa341316c ^ (lap * 97)) >>> 0);
+
+  let chosenX = minX;
+  for (let i = 0; i < 10; i += 1) {
+    const candidate = randomRange(rand, minX, maxX);
+    const overlapPit = terrain.pits.some((pit) => candidate < pit.x + pit.w - 2 && candidate + wallW > pit.x + 2);
+    if (!overlapPit) {
+      chosenX = candidate;
+      break;
+    }
+  }
+
+  const anchorWall = {
+    x: chosenX,
+    y: CONFIG.world.groundY - lowH,
+    w: wallW,
+    h: lowH,
+    type: "lowWall",
+  };
+
+  const mergedWalls = enforceWallGapRule([...terrain.walls, anchorWall], terrain.width);
+  terrain.walls = removeWallsOnPits(mergedWalls, terrain.pits);
+  if (terrain.debug) {
+    terrain.debug.anchorWallAdded = true;
+  }
+
+  return terrain;
+}
+function generateLapTerrain(lap, trend, previousSummary) {
+  const seed = terrainSeedFrom(lap, trend, previousSummary);
+  let terrain;
+
+  if (!CONFIG.terrain.useMotifGenerator) {
+    terrain = generateLapTerrainLegacy(lap, trend, previousSummary, seed);
+  } else {
+    const plan = buildLapPlan(lap, trend, previousSummary, seed);
+    const rawTerrain = materializeMotif(plan, trend, seed, lap);
+    terrain = normalizeTerrainResult(rawTerrain, trend, plan, seed);
+  }
+
+  if (!terrain.platforms) terrain.platforms = [];
+  terrain = ensureEarlyLapAnchorWall(terrain, lap, seed);
+  state.terrainDebug = terrain.debug;
+  return terrain;
 }
 
 function mergeIntervals(intervals, minGap) {
@@ -1006,6 +1517,18 @@ function resolveVertical(previousY) {
       player.vy = 0;
       player.onGround = true;
     }
+
+    for (const platform of state.terrain.platforms || []) {
+      const prevBottom = previousY + player.h;
+      const nowBottom = player.y + player.h;
+      const overlapsX = player.x + player.w - 2 > platform.x && player.x + 2 < platform.x + platform.w;
+      if (!overlapsX) continue;
+      if (prevBottom <= platform.y + 4 && nowBottom >= platform.y) {
+        player.y = platform.y - player.h;
+        player.vy = 0;
+        player.onGround = true;
+      }
+    }
   }
 
   for (const wall of state.terrain.walls) {
@@ -1170,7 +1693,8 @@ function updateRunning(dt, now) {
   }
 
   const baseSpeed = computeBaseSpeed();
-  if (now < player.takingKnockbackUntilMs) {
+  const inKnockback = now < player.takingKnockbackUntilMs;
+  if (inKnockback) {
     player.vx = -CONFIG.player.knockbackSpeed;
   } else {
     player.vx = baseSpeed;
@@ -1188,6 +1712,29 @@ function updateRunning(dt, now) {
   const prevX = player.x;
   player.x += player.vx * dt;
   resolveHorizontal(prevX);
+
+  let forwardMove = player.x - xBefore;
+  if (forwardMove < -CONFIG.canvas.width * 0.5) {
+    forwardMove += CONFIG.canvas.width;
+  }
+  if (forwardMove > CONFIG.canvas.width * 0.5) {
+    forwardMove -= CONFIG.canvas.width;
+  }
+
+  state.lapStats.lapTimeSec += dt;
+  if (forwardMove > 0) {
+    state.lapStats.forwardDistancePx += forwardMove;
+  }
+
+  const expectedTravel = Math.max(1, state.lapStats.lapTimeSec * baseSpeed);
+  state.lapStats.progressEfficiency = clamp(state.lapStats.forwardDistancePx / expectedTravel, 0, 1.3);
+  if (!inKnockback && player.onGround) {
+    const expectedStep = baseSpeed * dt;
+    if (forwardMove < expectedStep * 0.35) {
+      state.lapStats.stallTimeSec += dt;
+    }
+  }
+  state.lapStats.brakes = Math.round(state.lapStats.stallTimeSec * 4);
 
   if (player.x >= CONFIG.canvas.width) {
     player.x -= CONFIG.canvas.width;
@@ -1211,10 +1758,6 @@ function updateRunning(dt, now) {
     player.vy = 0;
   }
 
-  let forwardMove = player.x - xBefore;
-  if (forwardMove < -CONFIG.canvas.width * 0.5) {
-    forwardMove += CONFIG.canvas.width;
-  }
   if (forwardMove > 0.5) {
     state.survivalTime += dt;
   }
@@ -1260,6 +1803,13 @@ function drawTerrain() {
   ctx.fillStyle = "#1a2f45";
   for (const pit of state.terrain.pits) {
     ctx.fillRect(pit.x, gY - 3, pit.w, CONFIG.canvas.height - gY + 6);
+  }
+
+  for (const platform of state.terrain.platforms || []) {
+    ctx.fillStyle = "#9ef0bf";
+    ctx.fillRect(platform.x, platform.y, platform.w, platform.h);
+    ctx.fillStyle = "rgba(0,0,0,0.22)";
+    ctx.fillRect(platform.x, platform.y + platform.h - 3, platform.w, 3);
   }
 
   for (const wall of state.terrain.walls) {
@@ -1347,6 +1897,38 @@ function drawProgressHint() {
   ctx.fillRect(24, 26, (CONFIG.canvas.width - 48) * state.lapProgress, 5);
 }
 
+function drawTerrainDebugOverlay() {
+  if (!CONFIG.debug.showTerrainOverlay) return;
+  const debug = state.terrainDebug;
+  if (!debug) return;
+
+  const panelX = 16;
+  const panelY = 42;
+  const panelW = 520;
+  const panelH = 104;
+
+  ctx.fillStyle = "rgba(8,12,18,0.68)";
+  ctx.fillRect(panelX, panelY, panelW, panelH);
+  ctx.strokeStyle = "rgba(142,208,255,0.5)";
+  ctx.strokeRect(panelX + 0.5, panelY + 0.5, panelW - 1, panelH - 1);
+
+  const motifText = (debug.motifs || []).slice(0, 7).join(" > ");
+  const trend = debug.trend || {};
+  const danger = debug.danger || { target: 0, spent: 0 };
+  const lines = [
+    `Lap ${state.lap}  seed ${debug.seed}  mode ${debug.mode}`,
+    `trend d=${(trend.density || 0).toFixed(2)} hw=${(trend.highWallRate || 0).toFixed(2)} ch=${(trend.chainRate || 0).toFixed(2)} pit=${(trend.pitRate || 0).toFixed(2)} brake=${(trend.brakePressure || 0).toFixed(2)}`,
+    `budget ${danger.spent.toFixed(2)} / ${danger.target.toFixed(2)}   stalls ${state.lapStats.stallTimeSec.toFixed(2)}s   eff ${state.lapStats.progressEfficiency.toFixed(2)}`,
+    `motifs ${motifText}`,
+  ];
+
+  ctx.fillStyle = "#d6e7ff";
+  ctx.font = "12px monospace";
+  for (let i = 0; i < lines.length; i += 1) {
+    ctx.fillText(lines[i], panelX + 10, panelY + 22 + i * 22);
+  }
+}
+
 function render(now) {
   drawBackground();
   drawTerrain();
@@ -1354,6 +1936,7 @@ function render(now) {
   drawPlayer(now);
   drawParticles();
   drawProgressHint();
+  drawTerrainDebugOverlay();
 }
 
 function updateHud() {
@@ -1377,6 +1960,12 @@ function loop(now) {
 }
 
 function onKeyDown(e) {
+  if (e.code === "F3") {
+    e.preventDefault();
+    CONFIG.debug.showTerrainOverlay = !CONFIG.debug.showTerrainOverlay;
+    return;
+  }
+
   if (e.code === "Escape") {
     e.preventDefault();
     togglePause();
