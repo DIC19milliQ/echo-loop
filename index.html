@@ -16,7 +16,7 @@
     </header>
 
     <section class="game-shell">
-      <canvas id="gameCanvas" width="960" height="540" aria-label="Echo Loop Game"></canvas>
+      <canvas id="gameCanvas" width="960" height="540" aria-label="Echo Loop ゲーム"></canvas>
       <div id="overlay" class="overlay">
         <h1 class="title">ECHO LOOP</h1>
         <p id="overlayMessage" class="overlay-message">SPACE / TAP で開始</p>
@@ -24,12 +24,12 @@
           <button id="overlayPrimaryButton" type="button" class="ui-control overlay-btn overlay-btn-primary">開始</button>
           <button id="overlaySettingsButton" type="button" class="ui-control overlay-btn">設定</button>
         </div>
-        <div id="settingsPanel" class="settings-panel hidden" role="dialog" aria-modal="false" aria-label="音声設定">
+        <div id="settingsPanel" class="settings-panel hidden" role="dialog" aria-modal="false" aria-label="音量設定">
           <h2 class="settings-title">AUDIO SETTINGS</h2>
           <div class="settings-row">
             <label for="bgmVolumeSelect" class="settings-label">BGM 音量</label>
             <select id="bgmVolumeSelect" class="ui-control settings-select">
-              <option value="0">消音</option>
+              <option value="0">オフ</option>
               <option value="1">小</option>
               <option value="2">中</option>
               <option value="3">大</option>
@@ -38,7 +38,7 @@
           <div class="settings-row">
             <label for="sfxVolumeSelect" class="settings-label">効果音 音量</label>
             <select id="sfxVolumeSelect" class="ui-control settings-select">
-              <option value="0">消音</option>
+              <option value="0">オフ</option>
               <option value="1">小</option>
               <option value="2">中</option>
               <option value="3">大</option>
@@ -56,9 +56,7 @@
             </select>
           </div>
         </div>
-        <p class="overlay-help">
-          タップ: ジャンプ / 長押し: 大ジャンプに昇格
-        </p>
+        <p class="overlay-help">タップ: ジャンプ / 長押し: 大ジャンプに昇格</p>
       </div>
     </section>
 
@@ -66,9 +64,7 @@
       <button id="pauseButton" type="button" class="ui-control pause-btn" aria-label="一時停止">一時停止</button>
     </div>
 
-    <p class="help-inline">
-      操作: タップ/Spaceでジャンプ、長押しで昇格、Escで一時停止
-    </p>
+    <p class="help-inline">操作: タップ/Spaceでジャンプ、長押しで大ジャンプ。Escで一時停止</p>
   </main>
 
   <script src="main.js"></script>

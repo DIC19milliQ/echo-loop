@@ -1,0 +1,11 @@
+﻿{
+  "name": "echo-loop",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "build": "esbuild src/main-entry.js --bundle --format=iife --platform=browser --outfile=main.js"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.9"
+  }
+}

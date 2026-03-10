@@ -1,0 +1,106 @@
+{
+  "generatedAt": "2026-03-10T15:50:41.613Z",
+  "snapshots": [
+    {
+      "name": "lap1-default",
+      "seed": 18853,
+      "mode": "motif",
+      "motifs": [
+        "flatRun",
+        "restZone"
+      ],
+      "counts": {
+        "walls": 1,
+        "pits": 0,
+        "platforms": 0
+      },
+      "wallSample": [
+        {
+          "x": 260.73,
+          "h": 54,
+          "type": "lowWall"
+        }
+      ],
+      "pitSample": [],
+      "platformSample": []
+    },
+    {
+      "name": "lap3-mid",
+      "seed": 43372,
+      "mode": "motif",
+      "motifs": [
+        "pitZone",
+        "platformZone",
+        "pitZone",
+        "restZone"
+      ],
+      "counts": {
+        "walls": 1,
+        "pits": 0,
+        "platforms": 1
+      },
+      "wallSample": [
+        {
+          "x": 574.22,
+          "h": 54,
+          "type": "lowWall"
+        }
+      ],
+      "pitSample": [],
+      "platformSample": [
+        {
+          "x": 426.16,
+          "y": 263.23,
+          "w": 68.77
+        }
+      ]
+    },
+    {
+      "name": "lap8-high-pressure",
+      "seed": 100744,
+      "mode": "motif",
+      "motifs": [
+        "platformZone",
+        "chain",
+        "pitZone",
+        "flatRun",
+        "restZone"
+      ],
+      "counts": {
+        "walls": 4,
+        "pits": 1,
+        "platforms": 1
+      },
+      "wallSample": [
+        {
+          "x": 180,
+          "h": 54,
+          "type": "lowWall"
+        },
+        {
+          "x": 342.08,
+          "h": 54,
+          "type": "lowWall"
+        },
+        {
+          "x": 446.08,
+          "h": 104,
+          "type": "highWall"
+        }
+      ],
+      "pitSample": [
+        {
+          "x": 625.2,
+          "w": 106.93
+        }
+      ],
+      "platformSample": [
+        {
+          "x": 286.98,
+          "y": 301.6,
+          "w": 45.45
+        }
+      ]
+    }
+  ]
+}
