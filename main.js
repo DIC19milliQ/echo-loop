@@ -982,10 +982,28 @@ function onPointerUp(e) {
   endPress();
 }
 
+function onTouchStart(e) {
+  e.preventDefault();
+  startPress(performance.now());
+}
+
+function onTouchEnd(e) {
+  e.preventDefault();
+  endPress();
+}
+
 window.addEventListener("keydown", onKeyDown, { passive: false });
 window.addEventListener("keyup", onKeyUp, { passive: false });
-canvas.addEventListener("pointerdown", onPointerDown, { passive: false });
+window.addEventListener("pointerdown", onPointerDown, { passive: false });
 window.addEventListener("pointerup", onPointerUp, { passive: false });
+window.addEventListener("pointercancel", onPointerUp, { passive: false });
+
+if (!window.PointerEvent) {
+  window.addEventListener("touchstart", onTouchStart, { passive: false });
+  window.addEventListener("touchend", onTouchEnd, { passive: false });
+  window.addEventListener("touchcancel", onTouchEnd, { passive: false });
+}
+
 canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 
 setOverlay("SPACE / TAP で開始");
