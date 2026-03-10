@@ -1,0 +1,147 @@
+﻿:root {
+  --bg: #0a1220;
+  --panel: #10223a;
+  --line: #2f5b84;
+  --text: #e8f3ff;
+  --muted: #9bb7d4;
+  --accent: #7fd3ff;
+}
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background: radial-gradient(circle at 20% 0%, #1a3557 0%, #0a1220 62%);
+  color: var(--text);
+  font-family: "Trebuchet MS", "Verdana", sans-serif;
+  touch-action: manipulation;
+  user-select: none;
+}
+
+body {
+  display: grid;
+  place-items: center;
+  padding: 16px;
+}
+
+.app {
+  width: min(1020px, 100%);
+  display: grid;
+  gap: 10px;
+}
+
+.hud {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.hud-item {
+  background: linear-gradient(180deg, #163357, #10223a);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.label {
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+}
+
+.value {
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 18px;
+}
+
+.game-shell {
+  position: relative;
+  border: 2px solid #3f709f;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.35);
+}
+
+canvas {
+  width: 100%;
+  height: auto;
+  display: block;
+  background: #0a1220;
+  image-rendering: pixelated;
+  touch-action: none;
+}
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(5, 10, 18, 0.72);
+  display: grid;
+  place-content: center;
+  text-align: center;
+  padding: 16px;
+}
+
+.overlay.hidden {
+  display: none;
+}
+
+.title {
+  margin: 0 0 8px;
+  font-size: clamp(28px, 5vw, 50px);
+  letter-spacing: 0.08em;
+  color: #9de0ff;
+}
+
+.overlay-message {
+  margin: 0;
+  font-size: clamp(14px, 2.3vw, 22px);
+  font-weight: 700;
+}
+
+.overlay-help {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: clamp(12px, 1.7vw, 15px);
+}
+
+.help-inline {
+  margin: 0;
+  color: var(--muted);
+  text-align: center;
+  font-size: 13px;
+}
+
+@media (max-width: 680px) {
+  body {
+    padding: 8px;
+  }
+
+  .hud {
+    gap: 6px;
+  }
+
+  .hud-item {
+    padding: 7px 8px;
+  }
+
+  .label {
+    font-size: 10px;
+  }
+
+  .value {
+    font-size: 16px;
+  }
+
+  .help-inline {
+    font-size: 12px;
+  }
+}

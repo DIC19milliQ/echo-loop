@@ -1,0 +1,39 @@
+﻿<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <title>Echo Loop</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="app">
+    <header class="hud" aria-label="Game HUD">
+      <div class="hud-item"><span class="label">LIFE</span><span id="lifeValue" class="value">3</span></div>
+      <div class="hud-item"><span class="label">LAP</span><span id="lapValue" class="value">1</span></div>
+      <div class="hud-item"><span class="label">SCORE</span><span id="scoreValue" class="value">0</span></div>
+      <div class="hud-item"><span class="label">BEST</span><span id="bestValue" class="value">0</span></div>
+    </header>
+
+    <section class="game-shell">
+      <canvas id="gameCanvas" width="960" height="540" aria-label="Echo Loop Game"></canvas>
+      <div id="overlay" class="overlay">
+        <h1 class="title">ECHO LOOP</h1>
+        <p id="overlayMessage" class="overlay-message">SPACE / TAP で開始</p>
+        <p class="overlay-help">
+          タップ: ジャンプ / 長押し中: 大ジャンプに昇格
+        </p>
+      </div>
+    </section>
+
+    <p class="help-inline">
+      操作: タップでジャンプ、長押し中に大ジャンプへ昇格
+    </p>
+  </main>
+
+  <script src="main.js"></script>
+</body>
+</html>
+
+
+
