@@ -96,6 +96,10 @@ canvas {
   display: none;
 }
 
+.hidden {
+  display: none !important;
+}
+
 .title {
   margin: 0 0 8px;
   font-size: clamp(28px, 5vw, 50px);
@@ -114,6 +118,65 @@ canvas {
   display: flex;
   justify-content: center;
   gap: 10px;
+}
+
+.settings-panel {
+  margin: 14px auto 0;
+  width: min(320px, 92%);
+  border: 1px solid #6fa3cf;
+  border-radius: 10px;
+  background: rgba(14, 33, 54, 0.95);
+  padding: 12px;
+  text-align: left;
+}
+
+.settings-title {
+  margin: 0 0 10px;
+  font-size: 14px;
+  letter-spacing: 0.05em;
+  color: #bde7ff;
+  text-align: center;
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.settings-label {
+  color: var(--muted);
+  font-size: 13px;
+  letter-spacing: 0.03em;
+}
+
+.settings-select {
+  min-width: 118px;
+  border: 1px solid #6fa3cf;
+  background: linear-gradient(180deg, #22486f, #163657);
+  color: #e8f3ff;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.settings-select option {
+  color: #111827;
+  background: #f4f8ff;
+}
+
+.settings-select:focus {
+  background: #1a3858;
+}
+
+.settings-close {
+  display: block;
+  margin: 8px auto 0;
+  min-width: 100px;
+  padding: 7px 12px;
 }
 
 .overlay-help {
@@ -197,6 +260,10 @@ button,
     min-width: 104px;
     padding: 8px 12px;
     font-size: 13px;
+  }
+
+  .settings-panel {
+    width: min(300px, 96%);
   }
 
   .help-inline {

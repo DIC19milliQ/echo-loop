@@ -8,7 +8,7 @@
 </head>
 <body>
   <main class="app">
-    <header class="hud" aria-label="Game HUD">
+    <header class="hud" aria-label="ゲームHUD">
       <div class="hud-item"><span class="label">LIFE</span><span id="lifeValue" class="value">3</span></div>
       <div class="hud-item"><span class="label">LAP</span><span id="lapValue" class="value">1</span></div>
       <div class="hud-item"><span class="label">SCORE</span><span id="scoreValue" class="value">0</span></div>
@@ -24,8 +24,38 @@
           <button id="overlayPrimaryButton" type="button" class="ui-control overlay-btn overlay-btn-primary">開始</button>
           <button id="overlaySettingsButton" type="button" class="ui-control overlay-btn">設定</button>
         </div>
+        <div id="settingsPanel" class="settings-panel hidden" role="dialog" aria-modal="false" aria-label="音声設定">
+          <h2 class="settings-title">AUDIO SETTINGS</h2>
+          <div class="settings-row">
+            <label for="bgmVolumeSelect" class="settings-label">BGM 音量</label>
+            <select id="bgmVolumeSelect" class="ui-control settings-select">
+              <option value="0">消音</option>
+              <option value="1">小</option>
+              <option value="2">中</option>
+              <option value="3">大</option>
+            </select>
+          </div>
+          <div class="settings-row">
+            <label for="sfxVolumeSelect" class="settings-label">効果音 音量</label>
+            <select id="sfxVolumeSelect" class="ui-control settings-select">
+              <option value="0">消音</option>
+              <option value="1">小</option>
+              <option value="2">中</option>
+              <option value="3">大</option>
+            </select>
+          </div>
+          <div class="settings-row">
+            <label for="bgmTypeSelect" class="settings-label">BGM タイプ</label>
+            <select id="bgmTypeSelect" class="ui-control settings-select">
+              <option value="0">タイプ 1</option>
+              <option value="1">タイプ 2</option>
+              <option value="2">タイプ 3</option>
+            </select>
+          </div>
+          <button id="settingsCloseButton" type="button" class="ui-control overlay-btn settings-close">閉じる</button>
+        </div>
         <p class="overlay-help">
-          タップ: ジャンプ / 長押し中: 大ジャンプに昇格
+          タップ: ジャンプ / 長押し: 大ジャンプに昇格
         </p>
       </div>
     </section>
@@ -35,7 +65,7 @@
     </div>
 
     <p class="help-inline">
-      操作: タップでジャンプ、長押しで大ジャンプ / PC: Spaceで開始・再開、Escで一時停止
+      操作: タップ/Spaceでジャンプ、長押しで昇格、Escで一時停止
     </p>
   </main>
 

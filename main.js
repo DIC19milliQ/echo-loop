@@ -1,4 +1,4 @@
-﻿const CONFIG = {
+const CONFIG = {
   canvas: { width: 960, height: 540 },
   world: { groundY: 430, gravity: 2200, maxFallSpeed: 1450 },
   player: {
@@ -70,6 +70,11 @@ const overlayMessageEl = document.getElementById("overlayMessage");
 const overlayActionsEl = document.getElementById("overlayActions");
 const overlayPrimaryButtonEl = document.getElementById("overlayPrimaryButton");
 const overlaySettingsButtonEl = document.getElementById("overlaySettingsButton");
+const settingsPanelEl = document.getElementById("settingsPanel");
+const bgmVolumeSelectEl = document.getElementById("bgmVolumeSelect");
+const sfxVolumeSelectEl = document.getElementById("sfxVolumeSelect");
+const bgmTypeSelectEl = document.getElementById("bgmTypeSelect");
+const settingsCloseButtonEl = document.getElementById("settingsCloseButton");
 const pauseButtonEl = document.getElementById("pauseButton");
 const hud = {
   life: document.getElementById("lifeValue"),
@@ -79,7 +84,285 @@ const hud = {
 };
 
 const STORAGE_BEST = CONFIG.storage.bestScoreKey;
+const STORAGE_BGM_VOLUME_LEVEL = "echoLoopBgmVolumeLevel";
+const STORAGE_SFX_VOLUME_LEVEL = "echoLoopSfxVolumeLevel";
+const STORAGE_BGM_VARIANT = "echoLoopBgmVariant";
+const STORAGE_OLD_BGM_ENABLED = "echoLoopBgmEnabled";
+const STORAGE_OLD_SFX_ENABLED = "echoLoopSfxEnabled";
 const TYPE_PRIORITY = { smallJump: 1, bigJump: 2, brake: 3 };
+
+function clampLevel(level) {
+  return Math.max(0, Math.min(3, Number(level) || 0));
+}
+
+function clampVariant(variant) {
+  return Math.max(0, Math.min(2, Number(variant) || 0));
+}
+
+function parseStoredVolumeLevel(key, defaultValue, legacyKey) {
+  const stored = localStorage.getItem(key);
+  if (stored !== null) return clampLevel(stored);
+
+  const legacy = localStorage.getItem(legacyKey);
+  if (legacy === "off") return 0;
+  if (legacy === "on") return 2;
+  return defaultValue;
+}
+
+function parseStoredVariant(key, defaultValue) {
+  const stored = localStorage.getItem(key);
+  if (stored === null) return defaultValue;
+  return clampVariant(stored);
+}
+
+const audioState = {
+  initialized: false,
+  bgmVolumeLevel: parseStoredVolumeLevel(STORAGE_BGM_VOLUME_LEVEL, 2, STORAGE_OLD_BGM_ENABLED),
+  sfxVolumeLevel: parseStoredVolumeLevel(STORAGE_SFX_VOLUME_LEVEL, 2, STORAGE_OLD_SFX_ENABLED),
+  bgmVariant: parseStoredVariant(STORAGE_BGM_VARIANT, 0),
+  lifeTier: 3,
+};
+
+const uiState = {
+  settingsOpen: false,
+};
+
+function clampLifeTier(life) {
+  return Math.max(1, Math.min(3, life | 0));
+}
+
+function getVolumeScalar(level) {
+  const table = [0, 0.45, 0.8, 1.25];
+  return table[clampLevel(level)];
+}
+
+function persistAudioSettings() {
+  localStorage.setItem(STORAGE_BGM_VOLUME_LEVEL, String(audioState.bgmVolumeLevel));
+  localStorage.setItem(STORAGE_SFX_VOLUME_LEVEL, String(audioState.sfxVolumeLevel));
+  localStorage.setItem(STORAGE_BGM_VARIANT, String(audioState.bgmVariant));
+}
+
+function midiToHz(midi) {
+  return 440 * Math.pow(2, (midi - 69) / 12);
+}
+
+function createAudioEngine() {
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  const lifeProfiles = {
+    3: { stepSeconds: 0.28, semitoneShift: 0 },
+    2: { stepSeconds: 0.245, semitoneShift: 2 },
+    1: { stepSeconds: 0.21, semitoneShift: 4 },
+  };
+  const bgmVariants = [
+    {
+      label: "TYPE 1",
+      sequence: [0, 3, 5, 3, 7, 5, 2, 0],
+      leadWave: "square",
+      bassWave: "triangle",
+    },
+    {
+      label: "TYPE 2",
+      sequence: [0, 2, 4, 7, 4, 2, 5, 7],
+      leadWave: "triangle",
+      bassWave: "square",
+    },
+    {
+      label: "TYPE 3",
+      sequence: [0, -2, 3, 5, 3, 1, -2, 0],
+      leadWave: "sawtooth",
+      bassWave: "triangle",
+    },
+  ];
+
+  let audioCtx = null;
+  let masterGain = null;
+  let bgmGain = null;
+  let sfxGain = null;
+  let bgmTimer = null;
+  let nextStepTime = 0;
+  let stepIndex = 0;
+
+  function updateBgmGain() {
+    if (!bgmGain || !audioCtx) return;
+    const scalar = getVolumeScalar(audioState.bgmVolumeLevel);
+    const target = scalar <= 0 ? 0.0001 : 0.58 * scalar;
+    bgmGain.gain.setTargetAtTime(target, audioCtx.currentTime, 0.02);
+  }
+
+  function updateSfxGain() {
+    if (!sfxGain || !audioCtx) return;
+    const scalar = getVolumeScalar(audioState.sfxVolumeLevel);
+    const target = scalar <= 0 ? 0.0001 : 0.62 * scalar;
+    sfxGain.gain.setTargetAtTime(target, audioCtx.currentTime, 0.01);
+  }
+
+  function ensureContext() {
+    if (!AudioCtx) return null;
+
+    if (!audioCtx) {
+      audioCtx = new AudioCtx();
+      masterGain = audioCtx.createGain();
+      bgmGain = audioCtx.createGain();
+      sfxGain = audioCtx.createGain();
+
+      masterGain.gain.value = 0.9;
+      bgmGain.gain.value = 0.0001;
+      sfxGain.gain.value = 0.0001;
+
+      bgmGain.connect(masterGain);
+      sfxGain.connect(masterGain);
+      masterGain.connect(audioCtx.destination);
+      audioState.initialized = true;
+      updateBgmGain();
+      updateSfxGain();
+    }
+
+    if (audioCtx.state === "suspended") {
+      audioCtx.resume().catch(() => {});
+    }
+
+    return audioCtx;
+  }
+
+  function playTone(opts) {
+    const ctxLocal = ensureContext();
+    if (!ctxLocal || !sfxGain) return;
+    const scalar = getVolumeScalar(audioState.sfxVolumeLevel);
+    if (scalar <= 0) return;
+
+    const now = ctxLocal.currentTime;
+    const start = now + (opts.delay || 0);
+    const attack = opts.attack || 0.002;
+    const release = opts.release || 0.11;
+    const peak = opts.volume || 0.18;
+
+    const osc = ctxLocal.createOscillator();
+    const gain = ctxLocal.createGain();
+    osc.type = opts.type || "square";
+    osc.frequency.setValueAtTime(opts.freq, start);
+    if (opts.slideToFreq) {
+      osc.frequency.exponentialRampToValueAtTime(opts.slideToFreq, start + release);
+    }
+
+    gain.gain.setValueAtTime(0.0001, start);
+    gain.gain.linearRampToValueAtTime(peak, start + attack);
+    gain.gain.exponentialRampToValueAtTime(0.0001, start + release);
+
+    osc.connect(gain);
+    gain.connect(sfxGain);
+    osc.start(start);
+    osc.stop(start + release + 0.02);
+  }
+
+  function scheduleBgmStep(time, idx) {
+    const ctxLocal = ensureContext();
+    if (!ctxLocal || !bgmGain) return;
+
+    const profile = lifeProfiles[audioState.lifeTier] || lifeProfiles[3];
+    const variant = bgmVariants[audioState.bgmVariant] || bgmVariants[0];
+    const seq = variant.sequence;
+    const baseMidi = 57 + profile.semitoneShift;
+    const leadMidi = baseMidi + seq[idx % seq.length];
+    const bassMidi = baseMidi - 12 + (idx % 4 === 3 ? 2 : 0);
+
+    const leadOsc = ctxLocal.createOscillator();
+    const leadGain = ctxLocal.createGain();
+    leadOsc.type = variant.leadWave;
+    leadOsc.frequency.setValueAtTime(midiToHz(leadMidi), time);
+    leadGain.gain.setValueAtTime(0.0001, time);
+    leadGain.gain.linearRampToValueAtTime(0.07, time + 0.008);
+    leadGain.gain.exponentialRampToValueAtTime(0.0001, time + 0.17);
+    leadOsc.connect(leadGain);
+    leadGain.connect(bgmGain);
+    leadOsc.start(time);
+    leadOsc.stop(time + 0.2);
+
+    if (idx % 2 === 0) {
+      const bassOsc = ctxLocal.createOscillator();
+      const bassGainNode = ctxLocal.createGain();
+      bassOsc.type = variant.bassWave;
+      bassOsc.frequency.setValueAtTime(midiToHz(bassMidi), time);
+      bassGainNode.gain.setValueAtTime(0.0001, time);
+      bassGainNode.gain.linearRampToValueAtTime(0.05, time + 0.012);
+      bassGainNode.gain.exponentialRampToValueAtTime(0.0001, time + 0.2);
+      bassOsc.connect(bassGainNode);
+      bassGainNode.connect(bgmGain);
+      bassOsc.start(time);
+      bassOsc.stop(time + 0.23);
+    }
+  }
+
+  function tickBgm() {
+    if (!audioCtx || audioState.bgmVolumeLevel === 0) return;
+    const profile = lifeProfiles[audioState.lifeTier] || lifeProfiles[3];
+    const variant = bgmVariants[audioState.bgmVariant] || bgmVariants[0];
+
+    while (nextStepTime < audioCtx.currentTime + 0.16) {
+      scheduleBgmStep(nextStepTime, stepIndex);
+      stepIndex = (stepIndex + 1) % variant.sequence.length;
+      nextStepTime += profile.stepSeconds;
+    }
+  }
+
+  return {
+    ensureReady() {
+      ensureContext();
+    },
+    setBgmVolumeLevel(level) {
+      audioState.bgmVolumeLevel = clampLevel(level);
+      persistAudioSettings();
+      ensureContext();
+      updateBgmGain();
+      if (audioState.bgmVolumeLevel === 0) {
+        this.stopBgm();
+      } else if (state.mode === "running") {
+        this.startBgm();
+      }
+    },
+    setSfxVolumeLevel(level) {
+      audioState.sfxVolumeLevel = clampLevel(level);
+      persistAudioSettings();
+      ensureContext();
+      updateSfxGain();
+    },
+    setBgmVariant(variant) {
+      audioState.bgmVariant = clampVariant(variant);
+      persistAudioSettings();
+      if (bgmTimer && audioCtx) {
+        nextStepTime = audioCtx.currentTime + 0.02;
+        stepIndex = 0;
+      }
+    },
+    setBgmLifeTier(life) {
+      audioState.lifeTier = clampLifeTier(life);
+    },
+    startBgm() {
+      if (audioState.bgmVolumeLevel === 0) return;
+      const ctxLocal = ensureContext();
+      if (!ctxLocal || bgmTimer) return;
+      nextStepTime = ctxLocal.currentTime + 0.02;
+      stepIndex = 0;
+      bgmTimer = window.setInterval(tickBgm, 40);
+      tickBgm();
+    },
+    stopBgm() {
+      if (!bgmTimer) return;
+      window.clearInterval(bgmTimer);
+      bgmTimer = null;
+    },
+    playJumpSfx() {
+      playTone({ freq: 490, slideToFreq: 680, release: 0.1, volume: 0.2, type: "square" });
+    },
+    playBigJumpLayerSfx() {
+      playTone({ freq: 620, slideToFreq: 900, release: 0.12, volume: 0.16, type: "triangle" });
+    },
+    playHitSfx() {
+      playTone({ freq: 180, slideToFreq: 110, release: 0.2, volume: 0.22, type: "sawtooth" });
+    },
+  };
+}
+
+const audioEngine = createAudioEngine();
 
 const state = {
   mode: "title",
@@ -156,14 +439,27 @@ function randomRange(rand, min, max) {
   return min + (max - min) * rand();
 }
 
+function updateAudioToggleUi() {
+  bgmVolumeSelectEl.value = String(audioState.bgmVolumeLevel);
+  sfxVolumeSelectEl.value = String(audioState.sfxVolumeLevel);
+  bgmTypeSelectEl.value = String(audioState.bgmVariant);
+}
+
+function setSettingsPanelOpen(open) {
+  uiState.settingsOpen = open;
+  settingsPanelEl.classList.toggle("hidden", !open);
+}
+
 function setOverlay(text, primaryLabel) {
   overlayMessageEl.textContent = text;
   overlayPrimaryButtonEl.textContent = primaryLabel;
   overlayActionsEl.hidden = false;
+  setSettingsPanelOpen(false);
   overlayEl.classList.remove("hidden");
 }
 
 function hideOverlay() {
+  setSettingsPanelOpen(false);
   overlayEl.classList.add("hidden");
 }
 
@@ -188,6 +484,7 @@ function pauseGame() {
   if (state.mode !== "running") return;
   state.mode = "paused";
   endPress();
+  audioEngine.stopBgm();
   showPauseOverlay();
   updatePauseButton();
 }
@@ -195,6 +492,7 @@ function pauseGame() {
 function resumeGame() {
   if (state.mode !== "paused") return;
   state.mode = "running";
+  audioEngine.startBgm();
   hideOverlay();
   updatePauseButton();
 }
@@ -208,6 +506,8 @@ function togglePause() {
 }
 
 function runPrimaryOverlayAction() {
+  setSettingsPanelOpen(false);
+
   if (state.mode === "title" || state.mode === "gameover") {
     startGame();
     return;
@@ -231,6 +531,7 @@ function resetPlayer() {
 
 function resetRun() {
   state.life = 3;
+  audioEngine.setBgmLifeTier(state.life);
   state.lap = 1;
   state.score = 0;
   state.survivalTime = 0;
@@ -262,14 +563,17 @@ function resetRun() {
 }
 
 function startGame() {
+  audioEngine.ensureReady();
   resetRun();
   state.mode = "running";
+  audioEngine.startBgm();
   hideOverlay();
   updatePauseButton();
 }
 
 function endGame() {
   state.mode = "gameover";
+  audioEngine.stopBgm();
   if (state.score > state.bestScore) {
     state.bestScore = state.score;
     localStorage.setItem(STORAGE_BEST, String(state.bestScore));
@@ -576,6 +880,8 @@ function recordInputEvent(type, holdMs = 0) {
 }
 
 function startPress(now) {
+  audioEngine.ensureReady();
+
   if (state.mode === "title" || state.mode === "gameover") {
     startGame();
     return;
@@ -607,6 +913,7 @@ function promoteHeldJump(holdMs) {
   player.vy = Math.min(player.vy, CONFIG.player.bigJumpVelocity);
   state.lapStats.bigJumps += 1;
   recordInputEvent("bigJump", holdMs);
+  audioEngine.playBigJumpLayerSfx();
   emitBurst(player.x + player.w * 0.5, player.y + player.h * 0.55, 9, "#d7a8ff");
   return true;
 }
@@ -624,6 +931,7 @@ function tryJump(kind, holdMs) {
   player.onGround = false;
   state.lapStats.jumps += 1;
   recordInputEvent(kind, holdMs);
+  audioEngine.playJumpSfx();
   emitBurst(player.x + player.w * 0.4, player.y + player.h, 7, "#91c8ff");
   return true;
 }
@@ -707,6 +1015,8 @@ function takeDamage(now) {
   player.vx = -CONFIG.player.knockbackSpeed;
 
   state.life -= 1;
+  audioEngine.setBgmLifeTier(state.life);
+  audioEngine.playHitSfx();
   state.lapStats.hits += 1;
   emitBurst(player.x + player.w * 0.5, player.y + player.h * 0.4, 14, "#ff6c83");
 
@@ -1095,6 +1405,30 @@ function onOverlayPrimaryClick(e) {
 
 function onOverlaySettingsClick(e) {
   e.preventDefault();
+  audioEngine.ensureReady();
+  setSettingsPanelOpen(!uiState.settingsOpen);
+}
+
+function onSettingsCloseClick(e) {
+  e.preventDefault();
+  setSettingsPanelOpen(false);
+}
+
+function onBgmVolumeChange(e) {
+  const nextLevel = clampLevel(e.target.value);
+  audioEngine.setBgmVolumeLevel(nextLevel);
+  updateAudioToggleUi();
+}
+
+function onSfxVolumeChange(e) {
+  const nextLevel = clampLevel(e.target.value);
+  audioEngine.setSfxVolumeLevel(nextLevel);
+  updateAudioToggleUi();
+}
+function onBgmTypeChange(e) {
+  const nextVariant = clampVariant(e.target.value);
+  audioEngine.setBgmVariant(nextVariant);
+  updateAudioToggleUi();
 }
 
 window.addEventListener("keydown", onKeyDown, { passive: false });
@@ -1112,10 +1446,14 @@ if (!window.PointerEvent) {
 pauseButtonEl.addEventListener("click", onPauseButtonClick);
 overlayPrimaryButtonEl.addEventListener("click", onOverlayPrimaryClick);
 overlaySettingsButtonEl.addEventListener("click", onOverlaySettingsClick);
-overlaySettingsButtonEl.disabled = true;
-overlaySettingsButtonEl.title = "準備中";
+settingsCloseButtonEl.addEventListener("click", onSettingsCloseClick);
+bgmVolumeSelectEl.addEventListener("change", onBgmVolumeChange);
+sfxVolumeSelectEl.addEventListener("change", onSfxVolumeChange);
+bgmTypeSelectEl.addEventListener("change", onBgmTypeChange);
 canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 
+updateAudioToggleUi();
+setSettingsPanelOpen(false);
 showTitleOverlay();
 updatePauseButton();
 state.terrain = generateLapTerrain(state.lap, state.trend, state.lapStats);
@@ -1124,12 +1462,4 @@ requestAnimationFrame((t) => {
   state.clockMs = t;
   loop(t);
 });
-
-
-
-
-
-
-
-
 
