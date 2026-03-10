@@ -948,14 +948,25 @@ function drawEnemies() {
 
 function drawPlayer(now) {
   const invincible = now < player.invincibleUntilMs;
-  const blink = invincible && Math.floor(now / 80) % 2 === 0;
+  const lifeKey = String(clamp(state.life, 1, 3));
+  const lifeColors = {
+    "3": "#45e8ff",
+    "2": "#4f7dff",
+    "1": "#ff4f6d",
+  };
+  const invincibleColors = {
+    "3": "#98f4ff",
+    "2": "#aebfff",
+    "1": "#ff9fae",
+  };
 
-  if (blink) return;
-
-  ctx.fillStyle = "#9bffcf";
-  if (now < player.invincibleUntilMs) ctx.fillStyle = "#b58cff";
-
+  ctx.fillStyle = invincible ? invincibleColors[lifeKey] : lifeColors[lifeKey];
   ctx.fillRect(player.x, player.y, player.w, player.h);
+
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = invincible ? "rgba(255,255,255,0.9)" : "rgba(9,16,28,0.82)";
+  ctx.strokeRect(player.x + 1, player.y + 1, player.w - 2, player.h - 2);
+
   ctx.fillStyle = "#0d1627";
   ctx.fillRect(player.x + 7, player.y + 9, 7, 7);
   ctx.fillRect(player.x + player.w - 14, player.y + 9, 7, 7);
