@@ -74,7 +74,6 @@ const settingsPanelEl = document.getElementById("settingsPanel");
 const bgmVolumeSelectEl = document.getElementById("bgmVolumeSelect");
 const sfxVolumeSelectEl = document.getElementById("sfxVolumeSelect");
 const bgmTypeSelectEl = document.getElementById("bgmTypeSelect");
-const settingsCloseButtonEl = document.getElementById("settingsCloseButton");
 const pauseButtonEl = document.getElementById("pauseButton");
 const hud = {
   life: document.getElementById("lifeValue"),
@@ -96,7 +95,7 @@ function clampLevel(level) {
 }
 
 function clampVariant(variant) {
-  return Math.max(0, Math.min(2, Number(variant) || 0));
+  return Math.max(0, Math.min(4, Number(variant) || 0));
 }
 
 function parseStoredVolumeLevel(key, defaultValue, legacyKey) {
@@ -109,10 +108,16 @@ function parseStoredVolumeLevel(key, defaultValue, legacyKey) {
   return defaultValue;
 }
 
+function normalizeBgmVariantSetting(value) {
+  const n = Number(value);
+  if (n === -1) return -1;
+  return clampVariant(n);
+}
+
 function parseStoredVariant(key, defaultValue) {
   const stored = localStorage.getItem(key);
   if (stored === null) return defaultValue;
-  return clampVariant(stored);
+  return normalizeBgmVariantSetting(stored);
 }
 
 const audioState = {
@@ -120,6 +125,7 @@ const audioState = {
   bgmVolumeLevel: parseStoredVolumeLevel(STORAGE_BGM_VOLUME_LEVEL, 2, STORAGE_OLD_BGM_ENABLED),
   sfxVolumeLevel: parseStoredVolumeLevel(STORAGE_SFX_VOLUME_LEVEL, 2, STORAGE_OLD_SFX_ENABLED),
   bgmVariant: parseStoredVariant(STORAGE_BGM_VARIANT, 0),
+  bgmActiveVariant: 0,
   lifeTier: 3,
 };
 
@@ -156,20 +162,32 @@ function createAudioEngine() {
   const bgmVariants = [
     {
       label: "TYPE 1",
-      sequence: [0, 3, 5, 3, 7, 5, 2, 0],
+      sequence: [0, 2, 4, 5, 7, 5, 4, 2, 0, 2, 4, 7, 9, 7, 5, 2],
       leadWave: "square",
       bassWave: "triangle",
     },
     {
       label: "TYPE 2",
-      sequence: [0, 2, 4, 7, 4, 2, 5, 7],
+      sequence: [0, 3, 5, 7, 5, 3, 2, 0, -2, 0, 2, 3, 5, 3, 2, 0],
       leadWave: "triangle",
       bassWave: "square",
     },
     {
       label: "TYPE 3",
-      sequence: [0, -2, 3, 5, 3, 1, -2, 0],
+      sequence: [0, -2, 1, 3, 5, 3, 1, 0, 3, 5, 7, 8, 7, 5, 3, 1],
       leadWave: "sawtooth",
+      bassWave: "triangle",
+    },
+    {
+      label: "TYPE 4",
+      sequence: [0, 4, 7, 11, 7, 4, 2, 0, 2, 4, 5, 7, 9, 7, 5, 4],
+      leadWave: "square",
+      bassWave: "square",
+    },
+    {
+      label: "TYPE 5",
+      sequence: [0, 1, 3, 6, 8, 6, 3, 1, 0, -2, 1, 3, 5, 3, 1, 0],
+      leadWave: "triangle",
       bassWave: "triangle",
     },
   ];
@@ -259,7 +277,7 @@ function createAudioEngine() {
     if (!ctxLocal || !bgmGain) return;
 
     const profile = lifeProfiles[audioState.lifeTier] || lifeProfiles[3];
-    const variant = bgmVariants[audioState.bgmVariant] || bgmVariants[0];
+    const variant = bgmVariants[audioState.bgmActiveVariant] || bgmVariants[0];
     const seq = variant.sequence;
     const baseMidi = 57 + profile.semitoneShift;
     const leadMidi = baseMidi + seq[idx % seq.length];
@@ -292,10 +310,18 @@ function createAudioEngine() {
     }
   }
 
+  function pickBgmVariantForRun() {
+    if (audioState.bgmVariant === -1) {
+      audioState.bgmActiveVariant = Math.floor(Math.random() * bgmVariants.length);
+    } else {
+      audioState.bgmActiveVariant = clampVariant(audioState.bgmVariant);
+    }
+  }
+
   function tickBgm() {
     if (!audioCtx || audioState.bgmVolumeLevel === 0) return;
     const profile = lifeProfiles[audioState.lifeTier] || lifeProfiles[3];
-    const variant = bgmVariants[audioState.bgmVariant] || bgmVariants[0];
+    const variant = bgmVariants[audioState.bgmActiveVariant] || bgmVariants[0];
 
     while (nextStepTime < audioCtx.currentTime + 0.16) {
       scheduleBgmStep(nextStepTime, stepIndex);
@@ -326,18 +352,25 @@ function createAudioEngine() {
       updateSfxGain();
     },
     setBgmVariant(variant) {
-      audioState.bgmVariant = clampVariant(variant);
+      audioState.bgmVariant = normalizeBgmVariantSetting(variant);
       persistAudioSettings();
+      this.refreshBgmVariantForRun();
       if (bgmTimer && audioCtx) {
         nextStepTime = audioCtx.currentTime + 0.02;
         stepIndex = 0;
       }
+    },
+    refreshBgmVariantForRun() {
+      pickBgmVariantForRun();
     },
     setBgmLifeTier(life) {
       audioState.lifeTier = clampLifeTier(life);
     },
     startBgm() {
       if (audioState.bgmVolumeLevel === 0) return;
+      if (audioState.bgmActiveVariant < 0 || audioState.bgmActiveVariant >= bgmVariants.length) {
+        pickBgmVariantForRun();
+      }
       const ctxLocal = ensureContext();
       if (!ctxLocal || bgmTimer) return;
       nextStepTime = ctxLocal.currentTime + 0.02;
@@ -448,6 +481,7 @@ function updateAudioToggleUi() {
 function setSettingsPanelOpen(open) {
   uiState.settingsOpen = open;
   settingsPanelEl.classList.toggle("hidden", !open);
+  overlayEl.classList.toggle("settings-open", open);
 }
 
 function setOverlay(text, primaryLabel) {
@@ -464,20 +498,20 @@ function hideOverlay() {
 }
 
 function updatePauseButton() {
-  pauseButtonEl.textContent = state.mode === "paused" ? "再開" : "一時停止";
+  pauseButtonEl.textContent = state.mode === "paused" ? "\u518d\u958b" : "\u4e00\u6642\u505c\u6b62";
   pauseButtonEl.disabled = state.mode === "title" || state.mode === "gameover";
 }
 
 function showTitleOverlay() {
-  setOverlay("SPACE / TAP で開始", "開始");
+  setOverlay("SPACE / TAP \u3067\u958b\u59cb", "\u958b\u59cb");
 }
 
 function showPauseOverlay() {
-  setOverlay("PAUSED", "再開");
+  setOverlay("PAUSED", "\u518d\u958b");
 }
 
 function showGameOverOverlay() {
-  setOverlay(`GAME OVER  SCORE ${state.score} / BEST ${state.bestScore}  (SPACE で再開)`, "もう一度");
+  setOverlay(`GAME OVER  SCORE ${state.score} / BEST ${state.bestScore}  (SPACE \u3067\u518d\u958b)`, "\u3082\u3046\u4e00\u5ea6");
 }
 
 function pauseGame() {
@@ -563,6 +597,7 @@ function resetRun() {
 }
 
 function startGame() {
+  audioEngine.refreshBgmVariantForRun();
   audioEngine.ensureReady();
   resetRun();
   state.mode = "running";
@@ -1409,11 +1444,6 @@ function onOverlaySettingsClick(e) {
   setSettingsPanelOpen(!uiState.settingsOpen);
 }
 
-function onSettingsCloseClick(e) {
-  e.preventDefault();
-  setSettingsPanelOpen(false);
-}
-
 function onBgmVolumeChange(e) {
   const nextLevel = clampLevel(e.target.value);
   audioEngine.setBgmVolumeLevel(nextLevel);
@@ -1426,7 +1456,7 @@ function onSfxVolumeChange(e) {
   updateAudioToggleUi();
 }
 function onBgmTypeChange(e) {
-  const nextVariant = clampVariant(e.target.value);
+  const nextVariant = normalizeBgmVariantSetting(e.target.value);
   audioEngine.setBgmVariant(nextVariant);
   updateAudioToggleUi();
 }
@@ -1446,7 +1476,6 @@ if (!window.PointerEvent) {
 pauseButtonEl.addEventListener("click", onPauseButtonClick);
 overlayPrimaryButtonEl.addEventListener("click", onOverlayPrimaryClick);
 overlaySettingsButtonEl.addEventListener("click", onOverlaySettingsClick);
-settingsCloseButtonEl.addEventListener("click", onSettingsCloseClick);
 bgmVolumeSelectEl.addEventListener("change", onBgmVolumeChange);
 sfxVolumeSelectEl.addEventListener("change", onSfxVolumeChange);
 bgmTypeSelectEl.addEventListener("change", onBgmTypeChange);

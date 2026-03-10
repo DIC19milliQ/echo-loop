@@ -128,6 +128,8 @@ canvas {
   background: rgba(14, 33, 54, 0.95);
   padding: 12px;
   text-align: left;
+  max-height: min(70vh, 360px);
+  overflow-y: auto;
 }
 
 .settings-title {
@@ -172,11 +174,18 @@ canvas {
   background: #1a3858;
 }
 
-.settings-close {
-  display: block;
-  margin: 8px auto 0;
-  min-width: 100px;
-  padding: 7px 12px;
+.overlay.settings-open .title,
+.overlay.settings-open .overlay-message,
+.overlay.settings-open .overlay-help {
+  display: none;
+}
+
+.overlay.settings-open #overlayPrimaryButton {
+  display: none;
+}
+
+.overlay.settings-open .overlay-actions {
+  margin-top: 0;
 }
 
 .overlay-help {
@@ -238,6 +247,17 @@ button,
 @media (max-width: 680px) {
   body {
     padding: 8px;
+  }
+
+  .overlay.settings-open {
+    place-content: start center;
+    overflow-y: auto;
+    padding: 10px;
+  }
+
+  .overlay.settings-open .settings-panel {
+    margin-top: 6px;
+    max-height: 80vh;
   }
 
   .hud {
